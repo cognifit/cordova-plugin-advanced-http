@@ -14,7 +14,7 @@ This is a fork of [Wymsee's Cordova-HTTP plugin](https://github.com/wymsee/cordo
 
  - Background threading - all requests are done in a background thread.
  - Handling of HTTP code 401 - read more at [Issue CB-2415](https://issues.apache.org/jira/browse/CB-2415).
- - SSL Pinning - read more at [LumberBlog](http://blog.lumberlabs.com/2012/04/why-app-developers-should-care-about.html).
+ - SSL Pinning
 
 ## Updates
 
@@ -93,7 +93,7 @@ You can choose one of these:
 * `json`: send data as JSON encoded content in body (content type "application/json")
 * `utf8`: send data as plain UTF8 encoded string in body (content type "plain/text")
 
-You can also override the default content type headers by specifying your own headers (see [setHeader](#setHeader)).
+This defaults to `urlencoded`. You can also override the default content type headers by specifying your own headers (see [setHeader](#setHeader)).
 
 __Caution__: `urlencoded` does not support serializing deep structures whereas `json` does.
 
@@ -102,6 +102,13 @@ Set how long to wait for a request to respond, in seconds.
 
 ```js
 cordova.plugin.http.setRequestTimeout(5.0);
+```
+
+### setFollowRedirect<a name="setFollowRedirect"></a>
+Configure if it should follow redirects automatically. This defaults to true.
+
+```js
+cordova.plugin.http.setFollowRedirect(true);
 ```
 
 ### getCookieString
@@ -128,13 +135,13 @@ cordova.plugin.http.clearCookies();
 ## Asynchronous Functions
 These functions all take success and error callbacks as their last 2 arguments.
 
-### setSSLCertMode<a name="setSSLCertMode"></a>
-Set SSL Cert handling mode, being one of the following values:
+### setServerTrustMode<a name="setServerTrustMode"></a>
+Set server trust mode, being one of the following values:
 
-* `default`: default SSL cert handling using system's CA certs
+* `default`: default SSL trustship and hostname verification handling using system's CA certs
 * `legacy`: use legacy default behavior (< 2.0.3), excluding user installed CA certs (only for Android)
-* `nocheck`: disable SSL cert checking, trusting all certs (meant to be used only for testing purposes)
-* `pinned`: trust only provided certs
+* `nocheck`: disable SSL certificate checking and hostname verification, trusting all certs (meant to be used only for testing purposes)
+* `pinned`: trust only provided certificates
 
 To use SSL pinning you must include at least one `.cer` SSL certificate in your app project.  You can pin to your server certificate or to one of the issuing CA certificates. Include your certificate in the `www/certificates` folder. All `.cer` files found there will be loaded automatically.
 
@@ -142,46 +149,41 @@ To use SSL pinning you must include at least one `.cer` SSL certificate in your 
 
 ```js
 // enable SSL pinning
-cordova.plugin.http.setSSLCertMode('pinned', function() {
+cordova.plugin.http.setServerTrustMode('pinned', function() {
   console.log('success!');
 }, function() {
   console.log('error :(');
 });
 
 // use system's default CA certs
-cordova.plugin.http.setSSLCertMode('default', function() {
+cordova.plugin.http.setServerTrustMode('default', function() {
   console.log('success!');
 }, function() {
   console.log('error :(');
 });
 
 // disable SSL cert checking, only meant for testing purposes, do NOT use in production!
-cordova.plugin.http.setSSLCertMode('nocheck', function() {
+cordova.plugin.http.setServerTrustMode('nocheck', function() {
   console.log('success!');
 }, function() {
   console.log('error :(');
 });
 ```
+
+### disableRedirect (deprecated)
+This function was deprecated in 2.0.9. Use ["setFollowRedirect"](#setFollowRedirect) instead.
+
+### setSSLCertMode (deprecated)
+This function was deprecated in 2.0.8. Use ["setServerTrustMode"](#setServerTrustMode) instead.
 
 ### enableSSLPinning (obsolete)
-This function was removed in 2.0.0. Use ["setSSLCertMode"](#setSSLCertMode) to enable SSL pinning (mode "pinned").
+This function was removed in 2.0.0. Use ["setServerTrustMode"](#setServerTrustMode) to enable SSL pinning (mode "pinned").
 
 ### acceptAllCerts (obsolete)
-This function was removed in 2.0.0. Use ["setSSLCertMode"](#setSSLCertMode) to disable checking certs (mode "nocheck").
-
-### disableRedirect
-If set to `true`, it won't follow redirects automatically. This defaults to false.
-
-```js
-cordova.plugin.http.disableRedirect(true, function() {
-  console.log('success!');
-}, function() {
-  console.log('error :(');
-});
-```
+This function was removed in 2.0.0. Use ["setServerTrustMode"](#setServerTrustMode) to disable checking certs (mode "nocheck").
 
 ### validateDomainName (obsolete)
-This function was removed in v1.6.2. Domain name validation is disabled automatically when you set SSL cert mode to "nocheck".
+This function was removed in v1.6.2. Domain name validation is disabled automatically when you set server trust mode to "nocheck".
 
 ### removeCookies
 Remove all cookies associated with a given URL.
@@ -190,8 +192,10 @@ Remove all cookies associated with a given URL.
 cordova.plugin.http.removeCookies(url, callback);
 ```
 
-### sendRequest
-Execute a HTTP request.  Takes a URL and an options object. This is the internally used implementation of the following shorthand functions ([post](#post), [get](#get), [put](#put), [patch](#patch), [delete](#delete), [head](#head), [uploadFile](#uploadFile) and [downloadFile](#downloadFile)). You can use this function, if you want to override global settings for each single request.
+### sendRequest<a name="sendRequest"></a>
+Execute a HTTP request.  Takes a URL and an options object. This is the internally used implementation of the following shorthand functions ([post](#post), [get](#get), [put](#put), [patch](#patch), [delete](#delete), [head](#head), [uploadFile](#uploadFile) and [downloadFile](#downloadFile)). You can use this function, if you want to override global settings for each single request. Check the documentation of the respective shorthand function for details on what is returned on success and failure.
+
+:warning: You need to encode the base URL yourself if it contains special characters like whitespaces. You can use `encodeURI()` for this purpose.
 
 The options object contains following keys:
 
@@ -200,10 +204,16 @@ The options object contains following keys:
 * `data`: payload to be send to the server (only applicable on `post`, `put` or `patch` methods)
 * `params`: query params to be appended to the URL (only applicable on `get`, `head`, `delete`, `upload` or `download` methods)
 * `serializer`: data serializer to be used (only applicable on `post`, `put` or `patch` methods), defaults to global serializer value, see [setDataSerializer](#setDataSerializer) for supported values
+* `responseType`: expected response type, defaults to `text`, needs to be one of the following values:
+  * `text`: data is returned as decoded string, use this for all kinds of string responses (e.g. XML, HTML, plain text, etc.)
+  * `json` data is treated as JSON and returned as parsed object
+  * `arraybuffer`: data is returned as [ArrayBuffer instance](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer)
+  * `blob`: data is returned as [Blob instance](https://developer.mozilla.org/en-US/docs/Web/API/Blob)
 * `timeout`: timeout value for the request in seconds, defaults to global timeout value
+* `followRedirect`: enable or disable automatically following redirects
 * `headers`: headers object (key value pair), will be merged with global values
-* `filePath`: filePath to be used during upload and download see [uploadFile](#uploadFile) and [downloadFile](#downloadFile) for detailed information
-* `name`: name to be used during upload see [uploadFile](#uploadFile) for detailed information
+* `filePath`: file path(s) to be used during upload and download see [uploadFile](#uploadFile) and [downloadFile](#downloadFile) for detailed information
+* `name`: name(s) to be used during upload see [uploadFile](#uploadFile) for detailed information
 
 Here's a quick example:
 
@@ -228,6 +238,18 @@ cordova.plugin.http.sendRequest('https://google.com/', options, function(respons
 
 ### post<a name="post"></a>
 Execute a POST request.  Takes a URL, data, and headers.
+
+```js
+cordova.plugin.http.post('https://google.com/', {
+  test: 'testString'
+}, {
+  Authorization: 'OAuth2: token'
+}, function(response) {
+  console.log(response.status);
+}, function(response) {
+  console.error(response.error);
+});
+```
 
 #### success
 The success function receives a response object with 4 properties: status, data, url, and headers.  **status** is the HTTP response code as numeric value. **data** is the response from the server as a string. **url** is the final URL obtained after any redirects as a string. **headers** is an object with the headers. The keys of the returned object are the header names and the values are the respective header values. All header names are lowercase.
@@ -271,7 +293,7 @@ cordova.plugin.http.post('https://google.com/', {
 ```
 
 #### failure
-The error function receives a response object with 4 properties: status, error, url, and headers (url and headers being optional).  **status** is the HTTP response code as numeric value. **error** is the error response from the server as a string. **url** is the final URL obtained after any redirects as a string. **headers** is an object with the headers. The keys of the returned object are the header names and the values are the respective header values. All header names are lowercase.
+The error function receives a response object with 4 properties: status, error, url, and headers (url and headers being optional).  **status** is a HTTP response code or an internal error code. Positive values are HTTP status codes whereas negative values do represent internal error codes. **error** is the error response from the server as a string or an internal error message. **url** is the final URL obtained after any redirects as a string. **headers** is an object with the headers. The keys of the returned object are the header names and the values are the respective header values. All header names are lowercase.
 
 Here's a quick example:
 
@@ -285,6 +307,8 @@ Here's a quick example:
   }
 }
 ```
+
+:warning: An enumeration style object is exposed as `cordova.plugin.http.ErrorCode`. You can use it to check against internal error codes.
 
 ### get<a name="get"></a>
 Execute a GET request.  Takes a URL, parameters, and headers.  See the [post](#post) documentation for details on what is returned on success and failure.
@@ -313,13 +337,21 @@ Execute a DELETE request.  Takes a URL, parameters, and headers.  See the [post]
 Execute a HEAD request.  Takes a URL, parameters, and headers.  See the [post](#post) documentation for details on what is returned on success and failure.
 
 ### uploadFile<a name="uploadFile"></a>
-Uploads a file saved on the device.  Takes a URL, parameters, headers, filePath, and the name of the parameter to pass the file along as.  See the [post](#post) documentation for details on what is returned on success and failure.
+Uploads one or more file(s) saved on the device.  Takes a URL, parameters, headers, filePath(s), and the name(s) of the parameter to pass the file along as.  See the [post](#post) documentation for details on what is returned on success and failure.
 
 ```js
+// e.g. for single file
+const filePath = 'file:///somepicture.jpg';
+const name = 'picture';
+
+// e.g. for multiple files
+const filePath = ['file:///somepicture.jpg', 'file:///somedocument.doc'];
+const name = ['picture', 'document'];
+
 cordova.plugin.http.uploadFile("https://google.com/", {
     id: '12',
     message: 'test'
-}, { Authorization: 'OAuth2: token' }, 'file:///somepicture.jpg', 'picture', function(response) {
+}, { Authorization: 'OAuth2: token' }, filePath, name, function(response) {
     console.log(response.status);
 }, function(response) {
     console.error(response.error);
